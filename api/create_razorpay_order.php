@@ -56,27 +56,65 @@ try {
         exit();
     }
     
-    // Generate order ID
-    $order_id = generateOrderId();
-    
     // Convert amount to paise (Razorpay expects amount in paise)
     $amount_paise = $amount * USD_TO_INR_RATE * 100; // Convert USD to INR and then to paise
     
-    // Create order record in database
+    // Get Razorpay credentials
+    $credentials = getRazorpayCredentials();
+    
+    // Create order data for Razorpay API
+    $orderData = [
+        'amount' => $amount_paise,
+        'currency' => 'INR',
+        'receipt' => 'receipt_' . uniqid(),
+        'notes' => [
+            'category_id' => $category_id,
+            'user_id' => $user_id,
+            'business_profile' => 'https://razorpay.me/@jamesvarghese'
+        ]
+    ];
+    
+    // Call Razorpay API to create order
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, 'https://api.razorpay.com/v1/orders');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($orderData));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json',
+        'Authorization: Basic ' . base64_encode($credentials['key_id'] . ':' . $credentials['key_secret'])
+    ]);
+    
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    
+    if ($httpCode !== 200) {
+        error_log("Razorpay API error: HTTP $httpCode, Response: $response");
+        throw new Exception('Failed to create Razorpay order. Please try again.');
+    }
+    
+    $razorpayOrder = json_decode($response, true);
+    
+    if (!$razorpayOrder || !isset($razorpayOrder['id'])) {
+        throw new Exception('Invalid response from Razorpay');
+    }
+    
+    // Store order in our database
     $stmt = $pdo->prepare("
         INSERT INTO user_purchases (user_id, category_id, amount, payment_id, status) 
         VALUES (?, ?, ?, ?, 'pending')
     ");
     
-    $stmt->execute([$user_id, $category_id, $amount, $order_id]);
+    $stmt->execute([$user_id, $category_id, $amount, $razorpayOrder['id']]);
     
     // Log the order creation for debugging
-    error_log("Razorpay order created: Order ID: $order_id, Amount: $amount_paise paise, Category: {$category['name']}");
+    error_log("Razorpay order created: Order ID: {$razorpayOrder['id']}, Amount: $amount_paise paise, Category: {$category['name']}");
     
     // Return order details for Razorpay
     echo json_encode([
         'success' => true,
-        'order_id' => $order_id,
+        'order_id' => $razorpayOrder['id'],
         'amount' => $amount_paise,
         'currency' => 'INR',
         'description' => $category['name'] . ' Quiz Purchase'

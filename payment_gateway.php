@@ -205,8 +205,7 @@ include 'includes/header.php';
                 payButton.disabled = true;
                 payButton.innerHTML = '<span class="loading"></span> Creating Order...';
                 
-                <?php if (RAZORPAY_MODE === 'live'): ?>
-                // Live payment flow
+                // Both demo and live modes will use real Razorpay checkout
                 fetch('api/create_razorpay_order.php', {
                     method: 'POST',
                     headers: {
@@ -217,8 +216,15 @@ include 'includes/header.php';
                         amount: <?php echo $amount; ?>
                     })
                 })
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
+                    console.log('Order creation response:', data);
+                    
                     if (data.success) {
                         // Initialize Razorpay checkout
                         const options = {
@@ -266,9 +272,11 @@ include 'includes/header.php';
                             }
                         };
 
+                        console.log('Razorpay options:', options);
                         const rzp = new Razorpay(options);
                         rzp.open();
                     } else {
+                        console.error('Order creation failed:', data.message);
                         alert('Failed to create order: ' + data.message);
                         payButton.disabled = false;
                         payButton.innerHTML = '<i class="fas fa-lock"></i> Pay ₹<?php echo number_format($amount * USD_TO_INR_RATE, 2); ?> with Razorpay';
@@ -276,28 +284,10 @@ include 'includes/header.php';
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    alert('Payment initialization failed. Please try again.');
+                    alert('Payment initialization failed: ' + error.message + '. Please try again.');
                     payButton.disabled = false;
                     payButton.innerHTML = '<i class="fas fa-lock"></i> Pay ₹<?php echo number_format($amount * USD_TO_INR_RATE, 2); ?> with Razorpay';
                 });
-                <?php else: ?>
-                // Demo payment flow
-                payButton.innerHTML = '<span class="loading"></span> Processing Payment...';
-                
-                setTimeout(() => {
-                    const successDiv = document.createElement('div');
-                    successDiv.className = 'alert alert-success';
-                    successDiv.innerHTML = '<i class="fas fa-check-circle"></i> Payment successful! Redirecting to quiz...';
-                    
-                    const form = document.getElementById('razorpay-form');
-                    form.parentNode.insertBefore(successDiv, form);
-                    
-                    setTimeout(() => {
-                        document.getElementById('razorpay-form').submit();
-                    }, 2000);
-                    
-                }, 3000);
-                <?php endif; ?>
             });
             </script>
         <?php endif; ?>
